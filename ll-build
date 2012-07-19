@@ -1,0 +1,237 @@
+#!/bin/sh
+
+# ll-build - The Laptop Lab build script
+#
+# Copyright (C) 2012  Anthony Green <green@redhat.com>
+# Distrubuted under the terms of the GPL v3 or later.
+
+# FIXME - verify that I am root
+
+# ==== Configure this section ======================================
+ 
+# Domain name
+# DOMAIN=atgreen.org
+DOMAIN=
+
+# Where is the RHEL DVD ISO?
+RHELDVD=
+
+# What root password do you plan on using?
+# ROOTPW=passw0rd
+ROOTPW=
+
+# Where's a safe place for temporary mounts on this host?
+MOUNTPOINT=/mnt
+
+# Your RHN login name
+RHNLOGIN=
+
+# Activation key for SAM server.  Point your browser here:
+# https://rhn.redhat.com/network/account/activation_keys/list.pxt and
+# create a new Activation Key with the Red Hat Default base channel,
+# and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
+SAM_KEY=
+
+# Path to the manifest file for the subscription asset manage
+SAM_MANIFEST=
+
+SAM_ADMIN=admin
+SAM_ADMINPWD=$ROOTPW
+SAM_ORGNAME=Laptop_Lab
+
+# === Subscription Asset Manager =======================================
+#
+# Let's set up the SAM server first.  This is the server through which
+# other servers will register to RHN and acts as a gateway to the RHN
+# content delivery network.  We need this, for instance, to get
+# cobbler from the satellite server channel.
+#
+
+# First, mount the RHEL DVD under /mnt
+
+mount -o loop -t iso9660 $RHELDVD $MOUNTPOINT
+
+cat > sam.ks <<EOF
+install
+text
+reboot
+lang en_US.UTF-8
+keyboard us
+network --bootproto dhcp --hostname sam.$DOMAIN
+rootpw $ROOTPW
+firewall --enabled --ssh --port=443:tcp,8088:tcp
+selinux --enforcing
+timezone --utc America/Toronto
+#firstboot --disable
+bootloader --location=mbr --append="rd_NO_PLYMOUTH"
+zerombr
+clearpart --all --initlabel
+autopart
+%packages
+@core
+# Install packages required by SAM.  Doing this here pulls them from
+# the DVD ISO rather than over the net from RHN.
+antlr
+apr-util
+cvs
+ecj
+gdb
+gettext
+gstreamer
+gstreamer-plugins-base
+ghostscript
+ghostscript-fonts
+httpd
+httpd-tools
+iso-codes
+jakarta-commons-collections
+jakarta-commons-daemon
+jakarta-commons-dbcp
+jakarta-commons-discovery
+jakarta-commons-httpclient
+jakarta-commons-logging
+jakarta-commons-pool
+java-1.5.0-gcj
+java-1.6.0-openjdk
+jline
+jna
+jpackage-utils
+libXfont
+libXtst
+libXv
+libXxf86vm
+libcgroup
+libfontenc
+libgomp
+libmng
+libogg
+liboil
+libselinux-python
+libselinux-ruby
+libsndfile
+libtheora
+libvorbis
+mailcap
+make
+mesa-dri-drivers
+mesa-libGL
+mesa-libGLU
+mod_ssl
+mx4j
+openjpeg-libs
+patch
+perl-CGI
+perl-ExtUtils-MakeMaker
+perl-ExtUtils-ParseXS
+perl-Test-Harness
+postgresql
+postgresql-jdbc
+postgresql-libs
+postgresql-server
+pulseaudio-libs
+qt
+qt-sqlite
+qt4
+redhat-lsb
+setools-libs
+setools-libs-python
+sinjdoc
+tomcat6
+tomcat6-el-2.1-api
+tomcat6-jsp-2.1-api
+tomcat6-lib
+tomcat6-servlet-2.5-api
+tzdata-java
+urw-fonts
+xml-common
+xml-commons-apis
+xml-commons-resolver
+xorg-x11-font-utils
+%post
+(
+# Even though we are using DHCP, /etc/resolv.conf is not configured at
+# this point in the installation process.  Let's use google's public
+# DNS servers.
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
+# Now we register the SAM server to hosted RHN classic...
+rhnreg_ks --profilename=$RHNLOGIN --activationkey=$SAM_KEY
+
+# Install and configure katello...
+yum install -y katello-headpin-all
+
+# Set up a post-reboot script
+/bin/cat > /root/post-boot-configure.sh <<PBCEND
+#!/bin/sh
+katello-configure --deployment=sam \
+  --user-name=$SAM_ADMIN \
+  --user-pass=$SAM_ADMINPWD \
+  --org-name=$SAM_ORGNAME
+PBCEND
+chmod +x /root/post-boot-configure.sh
+cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
+cat >> /etc/rc.d/rc.local <<PBCRCEND
+. /etc/init.d/functions
+action "Running Post Boot Configure script: " /bin/true
+/root/post-boot-configure.sh
+action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
+headpin -u $SAM_ADMIN -p $SAM_ADMINPWD provider import_manifest --org $SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
+PBCRCEND
+) 1>/root/post_install.log 2>&1
+cp /manifest.zip /mnt/sysimage/root
+%end
+EOF
+
+virt-install \
+    --disk $RHELDVD,device=cdrom \
+    --name sam.$DOMAIN --ram 1024 --disk sam.$DOMAIN,size=8 \
+    -l $MOUNTPOINT \
+    -x "ks=file:/sam.ks" \
+    --initrd-inject=sam.ks \
+    --initrd-inject=$SAM_MANIFEST --noreboot --force
+
+# Unmount the RHEL DVD.
+umount $MOUNTPOINT
+
+exit
+
+# ==== Let's build the cobbler server first. =======================
+
+# First, mount the RHEL DVD under /mnt
+
+mount -o loop -t iso9660 $RHELDVD $MOUNTPOINT
+
+cat > cobbler.ks <<EOF
+# Minimal Kickstart file
+install
+text
+reboot
+lang en_US.UTF-8
+keyboard us
+network --bootproto dhcp --hostname cobbler.$DOMAIN
+#Choose a saner password here.
+rootpw $ROOTPW
+firewall --enabled --ssh
+selinux --enforcing
+timezone --utc America/Toronto
+#firstboot --disable
+bootloader --location=mbr --append="console=tty0 console=ttyS0,115200 rd_NO_PLYMOUTH"
+zerombr
+clearpart --all --initlabel
+autopart
+#Just core packages
+%packages
+@core
+emacs
+%end
+EOF
+
+virt-install \
+    --disk $RHELDVD,device=cdrom \
+    --name cobbler.$DOMAIN --ram 2048 --disk cobbler.$DOMAIN,size=8 \
+    --nographics -l $MOUNTPOINT \
+    -x "ks=file:/cobbler.ks" \
+    --initrd-inject=cobbler.ks --noreboot --force
+
+
