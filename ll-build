@@ -210,6 +210,7 @@ action "Running Post Boot Configure script: " /bin/true
 /root/post-boot-configure.sh
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
 headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
+headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD environment create --org $LL_SAM_ORGNAME --name Lab --prior Library > /root/envcreate 2>&1
 PBCRCEND
 %end
 
@@ -275,7 +276,7 @@ bind-dyndb-ldap
 %post --log=/root/post_install_1.log
 echo "10.0.0.97  sam.$LL_DOMAIN sam" >> /etc/hosts
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
-subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --auto # --env [env]
+subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
 %end
 EOF
 
