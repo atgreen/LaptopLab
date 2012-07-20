@@ -231,9 +231,8 @@ virt-install \
     --initrd-inject=sam.ks \
     --initrd-inject=$LL_SAM_MANIFEST --noreboot --force
 
-# Restart the guest to complete katello's configuration (see the
-# kickstart file's %post section for details).  This just starts the
-# guest, and we'll move on while it continues to run.
+# Restart the guest to complete katello's configuration.  This just
+# starts the guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
 
 # === IPA ==============================================================
