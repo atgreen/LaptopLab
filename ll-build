@@ -94,7 +94,7 @@ network --bootproto dhcp \
  --noipv6 \
  --device=$ETH1_MAC
 rootpw $LL_ROOTPW
-firewall --enabled --ssh --port=443:tcp,8088:tcp
+firewall --enabled --ssh --port=80:tcp,443:tcp,8088:tcp
 selinux --enforcing
 timezone --utc $LL_TIMEZONE
 bootloader --location=mbr --append="rd_NO_PLYMOUTH"
@@ -249,12 +249,12 @@ lang en_US.UTF-8
 keyboard us
 network --bootproto static --ip=10.0.0.99 \
  --netmask=255.255.255.0 --nameserver=10.0.0.99 \
- --hostname sam.$LL_DOMAIN \
+ --hostname ipa.$LL_DOMAIN \
  --nodefroute \
  --noipv6 \
  --device=$ETH0_MAC
 network --bootproto dhcp \
- --hostname sam.$LL_DOMAIN \
+ --hostname ipa.$LL_DOMAIN \
  --noipv6 \
  --device=$ETH1_MAC
 rootpw $LL_ROOTPW
@@ -273,9 +273,9 @@ subscription-manager
 bind
 bind-dyndb-ldap
 %post --log=/root/post_install_1.log
-chkconfig network on
-rpm -ivh http://10.0.0.97/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
-system-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --auto # --env [env]
+echo "10.0.0.97  sam.$LL_DOMAIN sam" >> /etc/hosts
+rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
+subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --auto # --env [env]
 %end
 EOF
 
