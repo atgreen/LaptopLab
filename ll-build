@@ -235,6 +235,12 @@ virt-install \
 # starts the guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
 
+# WARNING: There is a race here, in that we assume that the SAM
+# katello instance will finish configuring itself BEFORE it is
+# required for the IPA %post script below.  We can always sleep here
+# for a minute or two before moving on to give SAM a head start if we
+# have to.
+
 # === IPA ==============================================================
 
 # Generate a couple of MAC addresses for eth0 and eth1.
