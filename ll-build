@@ -201,16 +201,16 @@ katello-configure --deployment=sam \
   --user-name=$LL_SAM_ADMIN \
   --user-pass=$LL_SAM_ADMINPWD \
   --org-name=$LL_SAM_ORGNAME
+headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip
+headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD environment create --org $LL_SAM_ORGNAME --name Lab --prior Library
 PBCEND
 chmod +x /root/post-boot-configure.sh
 cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
 cat >> /etc/rc.d/rc.local <<PBCRCEND
 . /etc/init.d/functions
 action "Running Post Boot Configure script: " /bin/true
-/root/post-boot-configure.sh
+/root/post-boot-configure.sh > /root/post-boot-configure.log 2>&1
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
-headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
-headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD environment create --org $LL_SAM_ORGNAME --name Lab --prior Library > /root/envcreate 2>&1
 PBCRCEND
 %end
 
