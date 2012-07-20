@@ -53,6 +53,15 @@ LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 # TODO - verify $LL_RHELDVD
 # TODO - verify $LL_MOUNTPOINT 
 
+# === Utility Functions ================================================
+
+# Generate random MAC addresses that start with 52:00:
+
+function generate_MAC_address() {
+  SOURCE=`dd if=/dev/urandom count=1 2>/dev/null | openssl dgst -md5`
+  eval "$1='52:00:$(echo ${SOURCE} | sed 's/^............\(..\)\(..\)\(..\)\(..\).*$/\1:\2:\3:\4/')'"
+}
+
 # === Subscription Asset Manager =======================================
 #
 # Let's set up the SAM server first.  This is the server through which
@@ -62,9 +71,11 @@ LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 #
 
 # First, mount the RHEL DVD under /mnt, or similar.
-
-if false; then
 mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
+
+# Generate a couple of MAC addresses for eth0 and eth1.
+generate_MAC_address ETH0_MAC
+generate_MAC_address ETH1_MAC
 
 cat > sam.ks <<EOF
 install
@@ -72,7 +83,16 @@ text
 reboot
 lang en_US.UTF-8
 keyboard us
-network --bootproto dhcp --hostname sam.$LL_DOMAIN
+network --bootproto static --ip=10.0.0.97 \
+ --netmask=255.255.255.0 --nameserver=10.0.0.99 \
+ --hostname sam.$LL_DOMAIN \
+ --nodefroute \
+ --noipv6 \
+ --device=$ETH0_MAC
+network --bootproto dhcp \
+ --hostname sam.$LL_DOMAIN \
+ --noipv6 \
+ --device=$ETH1_MAC
 rootpw $LL_ROOTPW
 firewall --enabled --ssh --port=443:tcp,8088:tcp
 selinux --enforcing
@@ -203,6 +223,8 @@ virt-install \
     --disk $LL_RHELDVD,device=cdrom \
     --name sam.$LL_DOMAIN --ram 1024 \
     --disk /var/lib/libvirt/images/sam.$LL_DOMAIN.img,size=8 \
+    --network network:10_0,model=virtio,mac=$ETH0_MAC \
+    --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
     -x "ks=file:/sam.ks" \
     --initrd-inject=sam.ks \
@@ -212,8 +234,12 @@ virt-install \
 # kickstart file's %post section for details).  This just starts the
 # guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
-fi
+
 # === IPA ==============================================================
+
+# Generate a couple of MAC addresses for eth0 and eth1.
+generate_MAC_address ETH0_MAC
+generate_MAC_address ETH1_MAC
 
 cat > ipa.ks <<EOF
 install
@@ -221,7 +247,16 @@ text
 reboot
 lang en_US.UTF-8
 keyboard us
-network --bootproto dhcp --hostname ipa.$LL_DOMAIN
+network --bootproto static --ip=10.0.0.99 \
+ --netmask=255.255.255.0 --nameserver=10.0.0.99 \
+ --hostname sam.$LL_DOMAIN \
+ --nodefroute \
+ --noipv6 \
+ --device=$ETH0_MAC
+network --bootproto dhcp \
+ --hostname sam.$LL_DOMAIN \
+ --noipv6 \
+ --device=$ETH1_MAC
 rootpw $LL_ROOTPW
 # IPA needs a number of ports open.  See the documentation for details.
 firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
@@ -233,12 +268,14 @@ clearpart --all --initlabel
 autopart
 %packages
 @core
+subscription-manager
 @identity-management-server
 bind
 bind-dyndb-ldap
 %post --log=/root/post_install_1.log
-chkconfig NetworkManager off
 chkconfig network on
+rpm -ivh http://10.0.0.97/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
+system-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --auto # --env [env]
 %end
 EOF
 
@@ -246,6 +283,8 @@ virt-install \
     --disk $LL_RHELDVD,device=cdrom \
     --name ipa.$LL_DOMAIN --ram 1024 \
     --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,size=8 \
+    --network network:10_0,model=virtio,mac=$ETH0_MAC \
+    --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
     -x "ks=file:/ipa.ks" \
     --initrd-inject=ipa.ks \
