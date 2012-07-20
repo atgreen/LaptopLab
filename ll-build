@@ -9,35 +9,33 @@
 
 # ==== Configure this section ======================================
  
-# Domain name
-# DOMAIN=atgreen.org
-DOMAIN=
+# The domain name for my private network.
+LL_DOMAIN=${LL_DOMAIN-example.org}
 
 # Where is the RHEL DVD ISO?
-RHELDVD=
+LL_RHELDVD=${LL_RHELDVD-/path/to/rheldvd.iso}
 
 # What root password do you plan on using?
-# ROOTPW=passw0rd
-ROOTPW=
+LL_ROOTPW=${LL_ROOTPW-passw0rd}
 
 # Where's a safe place for temporary mounts on this host?
-MOUNTPOINT=/mnt
+LL_MOUNTPOINT=${LL_MOUNTPOINT-/mnt}
 
 # Your RHN login name
-RHNLOGIN=
+LL_RHNLOGIN=${LL_RHNLOGIN-mylogin}
 
 # Activation key for SAM server.  Point your browser here:
 # https://rhn.redhat.com/network/account/activation_keys/list.pxt and
 # create a new Activation Key with the Red Hat Default base channel,
 # and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
-SAM_KEY=
+LL_SAM_KEY=
 
 # Path to the manifest file for the subscription asset manage
-SAM_MANIFEST=
+LL_SAM_MANIFEST=
 
-SAM_ADMIN=admin
-SAM_ADMINPWD=$ROOTPW
-SAM_ORGNAME=Laptop_Lab
+LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
+LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
+LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 
 # === Subscription Asset Manager =======================================
 #
@@ -49,7 +47,7 @@ SAM_ORGNAME=Laptop_Lab
 
 # First, mount the RHEL DVD under /mnt
 
-mount -o loop -t iso9660 $RHELDVD $MOUNTPOINT
+mount -o loop -t iso9660 $LL_RHEVDVD $LL_MOUNTPOINT
 
 cat > sam.ks <<EOF
 install
@@ -57,8 +55,8 @@ text
 reboot
 lang en_US.UTF-8
 keyboard us
-network --bootproto dhcp --hostname sam.$DOMAIN
-rootpw $ROOTPW
+network --bootproto dhcp --hostname sam.$LL_DOMAIN
+rootpw $LL_ROOTPW
 firewall --enabled --ssh --port=443:tcp,8088:tcp
 selinux --enforcing
 timezone --utc America/Toronto
@@ -156,7 +154,7 @@ echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
 # Now we register the SAM server to hosted RHN classic...
-rhnreg_ks --profilename=$RHNLOGIN --activationkey=$SAM_KEY
+rhnreg_ks --profilename=$LL_RHNLOGIN --activationkey=$LL_SAM_KEY
 
 # Install and configure katello...
 yum install -y katello-headpin-all
@@ -165,9 +163,9 @@ yum install -y katello-headpin-all
 /bin/cat > /root/post-boot-configure.sh <<PBCEND
 #!/bin/sh
 katello-configure --deployment=sam \
-  --user-name=$SAM_ADMIN \
-  --user-pass=$SAM_ADMINPWD \
-  --org-name=$SAM_ORGNAME
+  --user-name=$LL_SAM_ADMIN \
+  --user-pass=$LL_SAM_ADMINPWD \
+  --org-name=$LL_SAM_ORGNAME
 PBCEND
 chmod +x /root/post-boot-configure.sh
 cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
@@ -176,7 +174,7 @@ cat >> /etc/rc.d/rc.local <<PBCRCEND
 action "Running Post Boot Configure script: " /bin/true
 /root/post-boot-configure.sh
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
-headpin -u $SAM_ADMIN -p $SAM_ADMINPWD provider import_manifest --org $SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
+headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
 PBCRCEND
 ) 1>/root/post_install.log 2>&1
 cp /manifest.zip /mnt/sysimage/root
@@ -184,15 +182,15 @@ cp /manifest.zip /mnt/sysimage/root
 EOF
 
 virt-install \
-    --disk $RHELDVD,device=cdrom \
-    --name sam.$DOMAIN --ram 1024 --disk sam.$DOMAIN,size=8 \
-    -l $MOUNTPOINT \
+    --disk $LL_RHEVDVD,device=cdrom \
+    --name sam.$LL_DOMAIN --ram 1024 --disk sam.$LL_DOMAIN,size=8 \
+    -l $LL_MOUNTPOINT \
     -x "ks=file:/sam.ks" \
     --initrd-inject=sam.ks \
-    --initrd-inject=$SAM_MANIFEST --noreboot --force
+    --initrd-inject=$LL_SAM_MANIFEST --noreboot --force
 
 # Unmount the RHEL DVD.
-umount $MOUNTPOINT
+umount $LL_MOUNTPOINT
 
 exit
 
@@ -200,7 +198,7 @@ exit
 
 # First, mount the RHEL DVD under /mnt
 
-mount -o loop -t iso9660 $RHELDVD $MOUNTPOINT
+mount -o loop -t iso9660 $LL_RHEVDVD $LL_MOUNTPOINT
 
 cat > cobbler.ks <<EOF
 # Minimal Kickstart file
@@ -209,9 +207,9 @@ text
 reboot
 lang en_US.UTF-8
 keyboard us
-network --bootproto dhcp --hostname cobbler.$DOMAIN
+network --bootproto dhcp --hostname cobbler.$LL_DOMAIN
 #Choose a saner password here.
-rootpw $ROOTPW
+rootpw $LL_ROOTPW
 firewall --enabled --ssh
 selinux --enforcing
 timezone --utc America/Toronto
@@ -228,9 +226,9 @@ emacs
 EOF
 
 virt-install \
-    --disk $RHELDVD,device=cdrom \
-    --name cobbler.$DOMAIN --ram 2048 --disk cobbler.$DOMAIN,size=8 \
-    --nographics -l $MOUNTPOINT \
+    --disk $LL_RHEVDVD,device=cdrom \
+    --name cobbler.$LL_DOMAIN --ram 2048 --disk cobbler.$LL_DOMAIN,size=8 \
+    --nographics -l $LL_MOUNTPOINT \
     -x "ks=file:/cobbler.ks" \
     --initrd-inject=cobbler.ks --noreboot --force
 
