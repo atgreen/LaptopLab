@@ -5,12 +5,19 @@
 # Copyright (C) 2012  Anthony Green <green@redhat.com>
 # Distrubuted under the terms of the GPL v3 or later.
 
-# FIXME - verify that I am root
-
 # ==== Configure this section ======================================
- 
+
+# Either modify the definition of these variables within this file, or
+# set them in a file called ll-config, which this script will read.
+if test -f ./ll-config; then
+  source ./ll-config
+fi
+
 # The domain name for my private network.
 LL_DOMAIN=${LL_DOMAIN-example.org}
+
+# My timezone
+LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
 
 # Where is the RHEL DVD ISO?
 LL_RHELDVD=${LL_RHELDVD-/path/to/rheldvd.iso}
@@ -28,14 +35,23 @@ LL_RHNLOGIN=${LL_RHNLOGIN-mylogin}
 # https://rhn.redhat.com/network/account/activation_keys/list.pxt and
 # create a new Activation Key with the Red Hat Default base channel,
 # and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
-LL_SAM_KEY=
+LL_SAM_KEY=${LL_SAM_KEY-myactivationkey}
 
-# Path to the manifest file for the subscription asset manage
-LL_SAM_MANIFEST=
+# Path to the manifest file for the subscription asset manage,
+# currently assumed to be called manifest.zip.  The SAM kickstart file
+# should be modified if this is not the case.  FIXME.
+LL_SAM_MANIFEST=${LL_SAM_MANIFEST-manifest.zip}
 
+# More SAM configury...
 LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
 LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
 LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
+
+# === Basic Sanity Checks ==============================================
+
+# TODO - verify that I am root
+# TODO - verify $LL_RHELDVD
+# TODO - verify $LL_MOUNTPOINT 
 
 # === Subscription Asset Manager =======================================
 #
@@ -45,9 +61,10 @@ LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 # cobbler from the satellite server channel.
 #
 
-# First, mount the RHEL DVD under /mnt
+# First, mount the RHEL DVD under /mnt, or similar.
 
-mount -o loop -t iso9660 $LL_RHEVDVD $LL_MOUNTPOINT
+if false; then
+mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
 
 cat > sam.ks <<EOF
 install
@@ -59,8 +76,7 @@ network --bootproto dhcp --hostname sam.$LL_DOMAIN
 rootpw $LL_ROOTPW
 firewall --enabled --ssh --port=443:tcp,8088:tcp
 selinux --enforcing
-timezone --utc America/Toronto
-#firstboot --disable
+timezone --utc $LL_TIMEZONE
 bootloader --location=mbr --append="rd_NO_PLYMOUTH"
 zerombr
 clearpart --all --initlabel
@@ -145,8 +161,7 @@ xml-common
 xml-commons-apis
 xml-commons-resolver
 xorg-x11-font-utils
-%post
-(
+%post --log=/root/post_install_1.log
 # Even though we are using DHCP, /etc/resolv.conf is not configured at
 # this point in the installation process.  Let's use google's public
 # DNS servers.
@@ -176,29 +191,74 @@ action "Running Post Boot Configure script: " /bin/true
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
 headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip > /root/manimport.txt 2>&1
 PBCRCEND
-) 1>/root/post_install.log 2>&1
+%end
+
+%post --nochroot --log=/mnt/sysimage/root/post_install_2.log
+# Copy the SAM manifest file from our initrd image into /root
 cp /manifest.zip /mnt/sysimage/root
 %end
 EOF
 
 virt-install \
-    --disk $LL_RHEVDVD,device=cdrom \
-    --name sam.$LL_DOMAIN --ram 1024 --disk sam.$LL_DOMAIN,size=8 \
+    --disk $LL_RHELDVD,device=cdrom \
+    --name sam.$LL_DOMAIN --ram 1024 \
+    --disk /var/lib/libvirt/images/sam.$LL_DOMAIN.img,size=8 \
     -l $LL_MOUNTPOINT \
     -x "ks=file:/sam.ks" \
     --initrd-inject=sam.ks \
     --initrd-inject=$LL_SAM_MANIFEST --noreboot --force
 
-# Unmount the RHEL DVD.
-umount $LL_MOUNTPOINT
+# Restart the guest to complete katello's configuration (see the
+# kickstart file's %post section for details).  This just starts the
+# guest, and we'll move on while it continues to run.
+virsh --connect qemu:///system start sam.$LL_DOMAIN
+fi
+# === IPA ==============================================================
+
+cat > ipa.ks <<EOF
+install
+text
+reboot
+lang en_US.UTF-8
+keyboard us
+network --bootproto dhcp --hostname ipa.$LL_DOMAIN
+rootpw $LL_ROOTPW
+# IPA needs a number of ports open.  See the documentation for details.
+firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
+selinux --enforcing
+timezone --utc $LL_TIMEZONE
+bootloader --location=mbr --append="rd_NO_PLYMOUTH"
+zerombr
+clearpart --all --initlabel
+autopart
+%packages
+@core
+@identity-management-server
+bind
+bind-dyndb-ldap
+%post --log=/root/post_install_1.log
+chkconfig NetworkManager off
+chkconfig network on
+%end
+EOF
+
+virt-install \
+    --disk $LL_RHELDVD,device=cdrom \
+    --name ipa.$LL_DOMAIN --ram 1024 \
+    --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,size=8 \
+    -l $LL_MOUNTPOINT \
+    -x "ks=file:/ipa.ks" \
+    --initrd-inject=ipa.ks \
+    --noreboot --force
+
+# Restart the guest and move on.
+virsh --connect qemu:///system start ipa.$LL_DOMAIN
 
 exit
 
-# ==== Let's build the cobbler server first. =======================
+# The rest is not complete.
 
-# First, mount the RHEL DVD under /mnt
-
-mount -o loop -t iso9660 $LL_RHEVDVD $LL_MOUNTPOINT
+# === Cobbler ==========================================================
 
 cat > cobbler.ks <<EOF
 # Minimal Kickstart file
@@ -212,8 +272,7 @@ network --bootproto dhcp --hostname cobbler.$LL_DOMAIN
 rootpw $LL_ROOTPW
 firewall --enabled --ssh
 selinux --enforcing
-timezone --utc America/Toronto
-#firstboot --disable
+timezone --utc $LL_TIMEZONE
 bootloader --location=mbr --append="console=tty0 console=ttyS0,115200 rd_NO_PLYMOUTH"
 zerombr
 clearpart --all --initlabel
@@ -226,7 +285,7 @@ emacs
 EOF
 
 virt-install \
-    --disk $LL_RHEVDVD,device=cdrom \
+    --disk $LL_RHELDVD,device=cdrom \
     --name cobbler.$LL_DOMAIN --ram 2048 --disk cobbler.$LL_DOMAIN,size=8 \
     --nographics -l $LL_MOUNTPOINT \
     -x "ks=file:/cobbler.ks" \
