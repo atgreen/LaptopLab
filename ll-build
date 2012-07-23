@@ -16,6 +16,10 @@ fi
 # The domain name for my private network.
 LL_DOMAIN=${LL_DOMAIN-example.org}
 
+# The kerberos domain.  Just an uppercase domain name by default.
+typeset -u LL_IPA_REALM 
+LL_IPA_REALM=${LL_IPA_REAM-$LL_DOMAIN}
+
 # My timezone
 LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
 
@@ -47,6 +51,10 @@ LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
 LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
 LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 
+# Passwords for IPA.  Just use the root password by default.
+LL_IPA_ADMINPWD=${LL_IPA_ADMINPWD-$LL_ROOTPW}
+LL_IPA_DMPWD=${LL_IPA_DMPWD-$LL_ROOTPW}
+
 # === Basic Sanity Checks ==============================================
 
 # TODO - verify that I am root
@@ -72,6 +80,8 @@ function generate_MAC_address() {
 
 # First, mount the RHEL DVD under /mnt, or similar.
 mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
+
+if false; then
 
 # Generate a couple of MAC addresses for eth0 and eth1.
 generate_MAC_address ETH0_MAC
@@ -103,6 +113,8 @@ clearpart --all --initlabel
 autopart
 %packages
 @core
+ipa-client
+subscription-manager
 # Install packages required by SAM.  Doing this here pulls them from
 # the DVD ISO rather than over the net from RHN.
 antlr
@@ -241,6 +253,8 @@ virsh --connect qemu:///system start sam.$LL_DOMAIN
 # for a minute or two before moving on to give SAM a head start if we
 # have to.
 
+fi
+
 # === IPA ==============================================================
 
 # Generate a couple of MAC addresses for eth0 and eth1.
@@ -265,8 +279,10 @@ network --bootproto dhcp \
  --device=$ETH1_MAC
 rootpw $LL_ROOTPW
 # IPA needs a number of ports open.  See the documentation for details.
-firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
-selinux --enforcing
+#firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
+firewall --disabled
+#selinux --enforcing
+selinux --permissive
 timezone --utc $LL_TIMEZONE
 bootloader --location=mbr --append="rd_NO_PLYMOUTH"
 zerombr
@@ -274,14 +290,52 @@ clearpart --all --initlabel
 autopart
 %packages
 @core
+ipa-client
 subscription-manager
 @identity-management-server
 bind
 bind-dyndb-ldap
+emacs
+
+%post --nochroot --log=/mnt/sysimage/root/post_install_0.log
+cp fix.patch /mnt/sysimage/root
+
 %post --log=/root/post_install_1.log
+# Force a couple of hosts into the hosts file for installation purposes
 echo "10.0.0.97  sam.$LL_DOMAIN sam" >> /etc/hosts
+echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
+
+# Register with SAM
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
 subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
+
+# See http://www.redhat.com/archives/freeipa-devel/2012-March/msg00267.html
+cat > /root/ipa-fix.patch <<IPAFIX
+--- /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py.orig	2012-05-26 22:12:20.000000000 -0400
++++ /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py	2012-07-23 14:11:27.608844877 -0400
+@@ -333,6 +333,8 @@
+                 root_logger.critical("failed to add user %s" % e)
+ 
+     def __create_instance(self):
++        pent = pwd.getpwnam(DS_USER)
++
+         self.backup_state("serverid", self.serverid)
+         self.fstore.backup_file("/etc/sysconfig/dirsrv")
+ 
+@@ -347,6 +349,7 @@
+ 
+         # Must be readable for dirsrv
+         os.chmod(target_fname, 0440)
++        os.chown(target_fname, pent.pw_uid, pent.pw_gid)
+ 
+         inf_txt = ipautil.template_str(INF_TEMPLATE, self.sub_dict)
+         root_logger.debug("writing inf template")
+IPAFIX
+(cd /; patch -p0 < /root/ipa-fix.patch)
+
+echo "nameserver 10.0.0.99" > /etc/resolv.conf
+hostname ipa.atgreen.org
+/bin/sh -l -c "ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders -U -d"
 %end
 EOF
 
@@ -299,41 +353,71 @@ virt-install \
 # Restart the guest and move on.
 virsh --connect qemu:///system start ipa.$LL_DOMAIN
 
-exit
+exit 
 
-# The rest is not complete.
+# The rest is not finished.
 
 # === Cobbler ==========================================================
 
+# Generate a couple of MAC addresses for eth0 and eth1.
+generate_MAC_address ETH0_MAC
+generate_MAC_address ETH1_MAC
+
 cat > cobbler.ks <<EOF
-# Minimal Kickstart file
 install
 text
 reboot
 lang en_US.UTF-8
 keyboard us
-network --bootproto dhcp --hostname cobbler.$LL_DOMAIN
-#Choose a saner password here.
+network --bootproto static --ip=10.0.0.98 \
+ --netmask=255.255.255.0 --nameserver=10.0.0.98 \
+ --hostname cobbler.$LL_DOMAIN \
+ --nodefroute \
+ --noipv6 \
+ --device=$ETH0_MAC
+network --bootproto dhcp \
+ --hostname cobbler.$LL_DOMAIN \
+ --noipv6 \
+ --device=$ETH1_MAC
 rootpw $LL_ROOTPW
-firewall --enabled --ssh
+# Cobbler needs a number of ports open.  See the documentation for details.
+firewall --enabled --ssh --port=69:tcp,80:tcp,25151:tcp
 selinux --enforcing
 timezone --utc $LL_TIMEZONE
-bootloader --location=mbr --append="console=tty0 console=ttyS0,115200 rd_NO_PLYMOUTH"
+bootloader --location=mbr --append="rd_NO_PLYMOUTH"
 zerombr
 clearpart --all --initlabel
 autopart
-#Just core packages
 %packages
 @core
-emacs
+subscription-manager
+@identity-management-server
+bind
+bind-dyndb-ldap
+%post --log=/root/post_install_1.loge
+echo "10.0.0.98  sam.$LL_DOMAIN sam" >> /etc/hosts
+rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
+subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
+chkconfig tftp on
+service tftp start
+chkconfig rsync on
+service rsync start
+/usr/sbin/semanage fcontext -a -t public_content_t "/tftpboot/.*" 
+/usr/sbin/semanage fcontext -a -t public_content_t "/var/www/cobbler/images/.*"
+cobbler get-loaders
 %end
 EOF
 
 virt-install \
     --disk $LL_RHELDVD,device=cdrom \
-    --name cobbler.$LL_DOMAIN --ram 2048 --disk cobbler.$LL_DOMAIN,size=8 \
-    --nographics -l $LL_MOUNTPOINT \
+    --name cobbler.$LL_DOMAIN --ram 1024 \
+    --disk /var/lib/libvirt/images/cobbler.$LL_DOMAIN.img,size=8 \
+    --network network:10_0,model=virtio,mac=$ETH0_MAC \
+    --network network:default,model=virtio,mac=$ETH1_MAC \
+    -l $LL_MOUNTPOINT \
     -x "ks=file:/cobbler.ks" \
-    --initrd-inject=cobbler.ks --noreboot --force
+    --initrd-inject=cobbler.ks \
+    --noreboot --force
 
-
+# Restart the guest and move on.
+virsh --connect qemu:///system start cobbler.$LL_DOMAIN
