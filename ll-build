@@ -297,9 +297,6 @@ bind
 bind-dyndb-ldap
 emacs
 
-%post --nochroot --log=/mnt/sysimage/root/post_install_0.log
-cp fix.patch /mnt/sysimage/root
-
 %post --log=/root/post_install_1.log
 # Force a couple of hosts into the hosts file for installation purposes
 echo "10.0.0.97  sam.$LL_DOMAIN sam" >> /etc/hosts
