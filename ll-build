@@ -8,60 +8,71 @@
 # ==== Configure this section ======================================
 
 # Either modify the definition of these variables within this file, or
-# set them in a file called ll-config, which this script will read.
-if test -f ./ll-config; then
-  source ./ll-config
+# set them in a file called ~/.ll-config, which this script will read.
+if test -f ~/.ll-config; then
+  source ~/.ll-config
 fi
 
 # The domain name for my private network.
-LL_DOMAIN=${LL_DOMAIN-example.org}
+export LL_DOMAIN=${LL_DOMAIN-example.org}
 
 # The kerberos domain.  Just an uppercase domain name by default.
 typeset -u LL_IPA_REALM 
-LL_IPA_REALM=${LL_IPA_REAM-$LL_DOMAIN}
+export LL_IPA_REALM=${LL_IPA_REAM-$LL_DOMAIN}
 
 # My timezone
-LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
+export LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
 
 # Where is the RHEL DVD ISO?
-LL_RHELDVD=${LL_RHELDVD-/path/to/rheldvd.iso}
+export LL_RHELDVD=${LL_RHELDVD}
 
 # What root password do you plan on using?
-LL_ROOTPW=${LL_ROOTPW-passw0rd}
+export LL_ROOTPW=${LL_ROOTPW}
 
 # Where's a safe place for temporary mounts on this host?
-LL_MOUNTPOINT=${LL_MOUNTPOINT-/mnt}
+export LL_MOUNTPOINT=${LL_MOUNTPOINT}
 
 # Your RHN login name
-LL_RHNLOGIN=${LL_RHNLOGIN-mylogin}
+export LL_RHNLOGIN=${LL_RHNLOGIN}
 
 # Activation key for SAM server.  Point your browser here:
 # https://rhn.redhat.com/network/account/activation_keys/list.pxt and
 # create a new Activation Key with the Red Hat Default base channel,
 # and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
-LL_SAM_KEY=${LL_SAM_KEY-myactivationkey}
+export LL_SAM_KEY=${LL_SAM_KEY}
 
 # Path to the manifest file for the subscription asset manage,
 # currently assumed to be called manifest.zip.  The SAM kickstart file
 # should be modified if this is not the case.  FIXME.
-LL_SAM_MANIFEST=${LL_SAM_MANIFEST-manifest.zip}
+export LL_SAM_MANIFEST=${LL_SAM_MANIFEST}
 
 # More SAM configury...
-LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
-LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
-LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
+export LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
+export LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
+export LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
 
 # Passwords for IPA.  Just use the root password by default.
-LL_IPA_ADMINPWD=${LL_IPA_ADMINPWD-$LL_ROOTPW}
-LL_IPA_DMPWD=${LL_IPA_DMPWD-$LL_ROOTPW}
+export LL_IPA_ADMINPWD=${LL_IPA_ADMINPWD-$LL_ROOTPW}
+export LL_IPA_DMPWD=${LL_IPA_DMPWD-$LL_ROOTPW}
+export LL_IPA_SUDOPWD=${LL_IPA_SUDOPWD-$LL_ROOTPW}
+
+export LL_IPA_USER_LOGIN=${LL_IPA_USER_LOGIN}
+export LL_IPA_USER_FIRST=${LL_IPA_USER_FIRST}
+export LL_IPA_USER_LAST=${LL_IPA_USER_LAST}
+export LL_IPA_USER_PUBKEY=${LL_IPA_USER_PUBKEY}
 
 # === Basic Sanity Checks ==============================================
 
-# TODO - verify that I am root
+for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHNLOGIN LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY; do
+  if [ "`printenv $v`x" = x ]; then
+    echo "Error: missing value for $v in ~/.ll-config";
+  fi;
+done;
+
 # TODO - verify $LL_RHELDVD
 # TODO - verify $LL_MOUNTPOINT 
 
-# === Utility Functions ================================================
+# === Utility Functions and Internal Variables =========================
 
 # Generate random MAC addresses that start with 52:00:
 
@@ -69,6 +80,11 @@ function generate_MAC_address() {
   SOURCE=`dd if=/dev/urandom count=1 2>/dev/null | openssl dgst -md5`
   eval "$1='52:00:$(echo ${SOURCE} | sed 's/^............\(..\)\(..\)\(..\)\(..\).*$/\1:\2:\3:\4/')'"
 }
+
+# Split domain like example.com into example and com.
+DNAM=`echo $LL_DOMAIN | awk -F. '{ print $1 }'`
+DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
+
 
 # === Subscription Asset Manager =======================================
 #
@@ -79,7 +95,7 @@ function generate_MAC_address() {
 #
 
 # First, mount the RHEL DVD under /mnt, or similar.
-mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
+sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
 
 if false; then
 
@@ -224,6 +240,9 @@ action "Running Post Boot Configure script: " /bin/true
 /root/post-boot-configure.sh > /root/post-boot-configure.log 2>&1
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
 PBCRCEND
+
+echo === Enabling home directory creation ===========================
+authconfig --enablemkhomedir --update
 %end
 
 %post --nochroot --log=/mnt/sysimage/root/post_install_2.log
@@ -253,7 +272,8 @@ virsh --connect qemu:///system start sam.$LL_DOMAIN
 # for a minute or two before moving on to give SAM a head start if we
 # have to.
 
-fi
+fi;
+
 
 # === IPA ==============================================================
 
@@ -306,7 +326,8 @@ echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
 subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
 
-# See http://www.redhat.com/archives/freeipa-devel/2012-March/msg00267.html
+# Fix IPA.  See  https://bugzilla.redhat.com/show_bug.cgi?id=842374 
+# and  http://www.redhat.com/archives/freeipa-devel/2012-March/msg00267.html
 cat > /root/ipa-fix.patch <<IPAFIX
 --- /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py.orig	2012-05-26 22:12:20.000000000 -0400
 +++ /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py	2012-07-23 14:11:27.608844877 -0400
@@ -330,9 +351,32 @@ cat > /root/ipa-fix.patch <<IPAFIX
 IPAFIX
 (cd /; patch -p0 < /root/ipa-fix.patch)
 
+# Fix networking...
 echo "nameserver 10.0.0.99" > /etc/resolv.conf
-hostname ipa.atgreen.org
+hostname ipa.$LL_DOMAIN
+echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+
+echo === Configuring the IPA server =================================
 /bin/sh -l -c "ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders -U -d"
+
+echo === Setting the password for the default IPA sudo bind user. ===
+echo "$LL_IPA_ADMINPWD" | kinit admin
+ldappasswd -Y GSSAPI -S -h ipa.$LL_DOMAIN uid=sudo,cn=sysaccounts,cn=etc,dc=$DNAM,dc=$DTLD -s $LL_IPA_SUDOPWD
+
+echo === Create a user ==============================================
+echo "$LL_IPA_USER_PUBKEY" > /root/pubkey
+ipa user-add $LL_IPA_USER_LOGIN \
+             --first=$LL_IPA_USER_FIRST \
+             --last=$LL_IPA_USER_LAST \
+             --random \
+             --sshpubkey="$LL_IPA_USER_PUBKEY"
+
+echo === Enabling home directory creation ===========================
+authconfig --enablemkhomedir --update
+
+echo === Register this host =========================================
+ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
+
 %end
 EOF
 
@@ -349,8 +393,6 @@ virt-install \
 
 # Restart the guest and move on.
 virsh --connect qemu:///system start ipa.$LL_DOMAIN
-
-exit 
 
 # The rest is not finished.
 
@@ -391,8 +433,14 @@ subscription-manager
 @identity-management-server
 bind
 bind-dyndb-ldap
-%post --log=/root/post_install_1.loge
-echo "10.0.0.98  sam.$LL_DOMAIN sam" >> /etc/hosts
+
+%post --log=/root/post_install_1.log
+# Fix networking...
+echo "nameserver 10.0.0.99" > /etc/resolv.conf
+hostname cobbler.$LL_DOMAIN
+echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+
+cat /etc/resolv.conf
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
 subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
 chkconfig tftp on
@@ -401,7 +449,10 @@ chkconfig rsync on
 service rsync start
 /usr/sbin/semanage fcontext -a -t public_content_t "/tftpboot/.*" 
 /usr/sbin/semanage fcontext -a -t public_content_t "/var/www/cobbler/images/.*"
-cobbler get-loaders
+#cobbler get-loaders
+
+echo === Enabling home directory creation ===========================
+authconfig --enablemkhomedir --update
 %end
 EOF
 
