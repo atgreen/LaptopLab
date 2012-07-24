@@ -357,25 +357,21 @@ hostname ipa.$LL_DOMAIN
 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
 
 echo === Configuring the IPA server =================================
-/bin/sh -l -c "ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders -U -d"
+ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders --configure-ssh --configure-sshd --ssh-trust-dns --enable-dns-updates -U
 
 echo === Setting the password for the default IPA sudo bind user. ===
 echo "$LL_IPA_ADMINPWD" | kinit admin
 ldappasswd -Y GSSAPI -S -h ipa.$LL_DOMAIN uid=sudo,cn=sysaccounts,cn=etc,dc=$DNAM,dc=$DTLD -s $LL_IPA_SUDOPWD
 
 echo === Create a user ==============================================
-echo "$LL_IPA_USER_PUBKEY" > /root/pubkey
 ipa user-add $LL_IPA_USER_LOGIN \
              --first=$LL_IPA_USER_FIRST \
              --last=$LL_IPA_USER_LAST \
              --random \
              --sshpubkey="$LL_IPA_USER_PUBKEY"
 
-echo === Enabling home directory creation ===========================
+echo === Enable home directory creation =============================
 authconfig --enablemkhomedir --update
-
-echo === Register this host =========================================
-ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
 
 %end
 EOF
