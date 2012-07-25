@@ -85,6 +85,122 @@ function generate_MAC_address() {
 DNAM=`echo $LL_DOMAIN | awk -F. '{ print $1 }'`
 DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 
+# === Host system work =================================================
+
+# Mount the RHEL DVD under /mnt, or similar.
+sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
+
+if false; then
+
+# === IPA ==============================================================
+
+# Generate a couple of MAC addresses for eth0 and eth1.
+generate_MAC_address ETH0_MAC
+generate_MAC_address ETH1_MAC
+
+cat > ipa.ks <<EOF
+install
+text
+reboot
+lang en_US.UTF-8
+keyboard us
+network --bootproto static --ip=10.0.0.99 \
+ --netmask=255.255.255.0 --nameserver=10.0.0.99 \
+ --hostname ipa.$LL_DOMAIN \
+ --nodefroute \
+ --noipv6 \
+ --device=$ETH0_MAC
+network --bootproto dhcp \
+ --hostname ipa.$LL_DOMAIN \
+ --noipv6 \
+ --device=$ETH1_MAC
+rootpw $LL_ROOTPW
+# IPA needs a number of ports open.  See the documentation for details.
+#firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
+firewall --disabled
+#selinux --enforcing
+selinux --permissive
+timezone --utc $LL_TIMEZONE
+bootloader --location=mbr --append="rd_NO_PLYMOUTH"
+zerombr
+clearpart --all --initlabel
+autopart
+%packages
+@core
+ipa-client
+subscription-manager
+@identity-management-server
+bind
+bind-dyndb-ldap
+emacs
+
+%post --log=/root/post_install_1.log
+# Force this host info the hosts file.
+echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
+
+# Fix IPA.  See  https://bugzilla.redhat.com/show_bug.cgi?id=842374 
+# and  http://www.redhat.com/archives/freeipa-devel/2012-March/msg00267.html
+cat > /root/ipa-fix.patch <<IPAFIX
+--- /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py.orig	2012-05-26 22:12:20.000000000 -0400
++++ /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py	2012-07-23 14:11:27.608844877 -0400
+@@ -333,6 +333,8 @@
+                 root_logger.critical("failed to add user %s" % e)
+ 
+     def __create_instance(self):
++        pent = pwd.getpwnam(DS_USER)
++
+         self.backup_state("serverid", self.serverid)
+         self.fstore.backup_file("/etc/sysconfig/dirsrv")
+ 
+@@ -347,6 +349,7 @@
+ 
+         # Must be readable for dirsrv
+         os.chmod(target_fname, 0440)
++        os.chown(target_fname, pent.pw_uid, pent.pw_gid)
+ 
+         inf_txt = ipautil.template_str(INF_TEMPLATE, self.sub_dict)
+         root_logger.debug("writing inf template")
+IPAFIX
+(cd /; patch -p0 < /root/ipa-fix.patch)
+
+# Fix networking...
+echo "nameserver 10.0.0.99" > /etc/resolv.conf
+hostname ipa.$LL_DOMAIN
+echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+
+echo === Configuring the IPA server =================================
+ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders --configure-ssh --configure-sshd --ssh-trust-dns -U
+
+echo === Setting the password for the default IPA sudo bind user. ===
+echo "$LL_IPA_ADMINPWD" | kinit admin
+ldappasswd -Y GSSAPI -S -h ipa.$LL_DOMAIN uid=sudo,cn=sysaccounts,cn=etc,dc=$DNAM,dc=$DTLD -s $LL_IPA_SUDOPWD
+
+echo === Create a user ==============================================
+ipa user-add $LL_IPA_USER_LOGIN \
+             --first=$LL_IPA_USER_FIRST \
+             --last=$LL_IPA_USER_LAST \
+             --random \
+             --sshpubkey="$LL_IPA_USER_PUBKEY"
+
+echo === Enable home directory creation =============================
+authconfig --enablemkhomedir --update
+
+%end
+EOF
+
+virt-install \
+    --disk $LL_RHELDVD,device=cdrom \
+    --name ipa.$LL_DOMAIN --ram 1024 \
+    --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,size=8 \
+    --network network:10_0,model=virtio,mac=$ETH0_MAC \
+    --network network:default,model=virtio,mac=$ETH1_MAC \
+    -l $LL_MOUNTPOINT \
+    -x "ks=file:/ipa.ks" \
+    --initrd-inject=ipa.ks \
+    --noreboot --force
+
+# Restart the guest and move on.
+virsh --connect qemu:///system start ipa.$LL_DOMAIN
 
 # === Subscription Asset Manager =======================================
 #
@@ -93,11 +209,6 @@ DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 # content delivery network.  We need this, for instance, to get
 # cobbler from the satellite server channel.
 #
-
-# First, mount the RHEL DVD under /mnt, or similar.
-sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
-
-if false; then
 
 # Generate a couple of MAC addresses for eth0 and eth1.
 generate_MAC_address ETH0_MAC
@@ -272,125 +383,7 @@ virsh --connect qemu:///system start sam.$LL_DOMAIN
 # for a minute or two before moving on to give SAM a head start if we
 # have to.
 
-fi;
-
-
-# === IPA ==============================================================
-
-# Generate a couple of MAC addresses for eth0 and eth1.
-generate_MAC_address ETH0_MAC
-generate_MAC_address ETH1_MAC
-
-cat > ipa.ks <<EOF
-install
-text
-reboot
-lang en_US.UTF-8
-keyboard us
-network --bootproto static --ip=10.0.0.99 \
- --netmask=255.255.255.0 --nameserver=10.0.0.99 \
- --hostname ipa.$LL_DOMAIN \
- --nodefroute \
- --noipv6 \
- --device=$ETH0_MAC
-network --bootproto dhcp \
- --hostname ipa.$LL_DOMAIN \
- --noipv6 \
- --device=$ETH1_MAC
-rootpw $LL_ROOTPW
-# IPA needs a number of ports open.  See the documentation for details.
-#firewall --enabled --ssh --port=80:tcp,443:tcp,389:tcp,636:tcp,88:tcp,88:udp,464:tcp,464:udp,53:tcp,53:udp,7389:tcp
-firewall --disabled
-#selinux --enforcing
-selinux --permissive
-timezone --utc $LL_TIMEZONE
-bootloader --location=mbr --append="rd_NO_PLYMOUTH"
-zerombr
-clearpart --all --initlabel
-autopart
-%packages
-@core
-ipa-client
-subscription-manager
-@identity-management-server
-bind
-bind-dyndb-ldap
-emacs
-
-%post --log=/root/post_install_1.log
-# Force a couple of hosts into the hosts file for installation purposes
-echo "10.0.0.97  sam.$LL_DOMAIN sam" >> /etc/hosts
-echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
-
-# Register with SAM
-rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
-subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
-
-# Fix IPA.  See  https://bugzilla.redhat.com/show_bug.cgi?id=842374 
-# and  http://www.redhat.com/archives/freeipa-devel/2012-March/msg00267.html
-cat > /root/ipa-fix.patch <<IPAFIX
---- /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py.orig	2012-05-26 22:12:20.000000000 -0400
-+++ /usr/lib/python2.6/site-packages/ipaserver/install/dsinstance.py	2012-07-23 14:11:27.608844877 -0400
-@@ -333,6 +333,8 @@
-                 root_logger.critical("failed to add user %s" % e)
- 
-     def __create_instance(self):
-+        pent = pwd.getpwnam(DS_USER)
-+
-         self.backup_state("serverid", self.serverid)
-         self.fstore.backup_file("/etc/sysconfig/dirsrv")
- 
-@@ -347,6 +349,7 @@
- 
-         # Must be readable for dirsrv
-         os.chmod(target_fname, 0440)
-+        os.chown(target_fname, pent.pw_uid, pent.pw_gid)
- 
-         inf_txt = ipautil.template_str(INF_TEMPLATE, self.sub_dict)
-         root_logger.debug("writing inf template")
-IPAFIX
-(cd /; patch -p0 < /root/ipa-fix.patch)
-
-# Fix networking...
-echo "nameserver 10.0.0.99" > /etc/resolv.conf
-hostname ipa.$LL_DOMAIN
-echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
-
-echo === Configuring the IPA server =================================
-ipa-server-install -a $LL_IPA_ADMINPWD --hostname=ipa.$LL_DOMAIN -r $LL_IPA_REALM -p $LL_IPA_DMPWD -n $LL_DOMAIN --no-ntp --setup-dns --no-forwarders --configure-ssh --configure-sshd --ssh-trust-dns --enable-dns-updates -U
-
-echo === Setting the password for the default IPA sudo bind user. ===
-echo "$LL_IPA_ADMINPWD" | kinit admin
-ldappasswd -Y GSSAPI -S -h ipa.$LL_DOMAIN uid=sudo,cn=sysaccounts,cn=etc,dc=$DNAM,dc=$DTLD -s $LL_IPA_SUDOPWD
-
-echo === Create a user ==============================================
-ipa user-add $LL_IPA_USER_LOGIN \
-             --first=$LL_IPA_USER_FIRST \
-             --last=$LL_IPA_USER_LAST \
-             --random \
-             --sshpubkey="$LL_IPA_USER_PUBKEY"
-
-echo === Enable home directory creation =============================
-authconfig --enablemkhomedir --update
-
-%end
-EOF
-
-virt-install \
-    --disk $LL_RHELDVD,device=cdrom \
-    --name ipa.$LL_DOMAIN --ram 1024 \
-    --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,size=8 \
-    --network network:10_0,model=virtio,mac=$ETH0_MAC \
-    --network network:default,model=virtio,mac=$ETH1_MAC \
-    -l $LL_MOUNTPOINT \
-    -x "ks=file:/ipa.ks" \
-    --initrd-inject=ipa.ks \
-    --noreboot --force
-
-# Restart the guest and move on.
-virsh --connect qemu:///system start ipa.$LL_DOMAIN
-
-# The rest is not finished.
+fi
 
 # === Cobbler ==========================================================
 
@@ -436,6 +429,21 @@ echo "nameserver 10.0.0.99" > /etc/resolv.conf
 hostname cobbler.$LL_DOMAIN
 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
 
+# TODO remove this when IPA is working
+echo "10.0.0.97  sam.$LL_DOMAIN" >> /etc/hosts
+echo "10.0.0.98  cobbler.$LL_DOMAIN" >> /etc/hosts
+echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
+
+echo === Register with IPA server ===================================
+ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
+
+echo === Grab cobbler from RHN ======================================
+rhnks_reg --username=$LL_RHN_LOGIN --password=$LL_RHN_PASSWORD
+rhn-channel -u $LL_RHN_LOGIN -p $LL_RHN_PASSWORD --add -c redhat-rhn-satellite-5.4-server-x86_64-6
+yes | yum install cobbler
+# TODO unregister from RHN
+
+echo === Register with SAM server ===================================
 cat /etc/resolv.conf
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
 subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
