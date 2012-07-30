@@ -1,1 +1,54 @@
-A work in progress.
+ll-build is a script I wrote to create a number of KVM guests to
+test/demo technologies on my laptop.
+
+The ll-build script currently creates three KVM guests from the RHEL
+DVD ISO image:
+
+ * an IPA server
+ * a Red Hat Subscription Asset Manager server
+ * a cobbler server
+
+You should be able to PXE boot new guests from the cobbler server on
+the private network that is created on your laptop.
+
+ll-build requires a few things before you start:
+
+1. You'll need an RHN account and a RHEL DVD ISO image.
+
+2. You should create an RHN Classic Activation Key for RHEL and the
+ SAM server.  Point your browser here:
+ https://rhn.redhat.com/network/account/activation_keys/list.pxt 
+ Now create a new Activation Key with the Red Hat Default base channel,
+ and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
+
+3. You'll to allocate some entitlements to your SAM server and
+   download a manifest file (manifest.zip) from access.redhat.com.
+
+4. You'll need a public ssh key for the default user account.
+
+
+ll-build requires that you set a number of environment variables to
+configure the system.  They are documented at the top of the script.
+You can either modify the script to change these values, or create a
+~/.ll-config file to set all of the values.   Here's an example...
+
+    # ~/.ll-config
+    #
+    # Copyright (C) 2012  Anthony Green <green@redhat.com>
+    #
+    
+    LL_DOMAIN=atgreen.org
+    LL_RHELDVD=/home/green/Downloads/rhel-server-6.3-x86_64-dvd.iso
+    LL_ROOTPW=r3dhat1.
+    LL_MOUNTPOINT=/mnt
+    LL_RHN_LOGIN=greenrhn
+    LL_RHN_PASSWORD=myrhnpassword
+    LL_SAM_KEY=a7cf413fc3f5d00778994e43c5f54e4a
+    LL_SAM_MANIFEST=/home/green/Downloads/manifest.zip
+    LL_SAM_ADMIN=admin
+    LL_SAM_ORGNAME=Laptop_Lab
+    LL_IPA_USER_LOGIN=green
+    LL_IPA_USER_FIRST=Anthony
+    LL_IPA_USER_LAST=Green
+    LL_IPA_USER_PUBKEY="AAAABkjhsdGyc2EAAAABIwAAAIEAulmkoAcVRdBCIdH1bPcb6CTpyFH31Zfp96yxd2TJamQuiZcrmIbuwP6KdTHILtLbNn+FWkcYNFA6Rfjz1997u0JZ4zfE0pJMd226vpUbZOseeKXmBf8IgjitLnPyKq6FNufQz+xsnwOYumLAb1NjzrzgNvtAY5WnXrhi4gb1YOs="
+    
