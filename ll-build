@@ -32,8 +32,9 @@ export LL_ROOTPW=${LL_ROOTPW}
 # Where's a safe place for temporary mounts on this host?
 export LL_MOUNTPOINT=${LL_MOUNTPOINT}
 
-# Your RHN login name
-export LL_RHNLOGIN=${LL_RHNLOGIN}
+# Your RHN login name and password
+export LL_RHN_LOGIN=${LL_RHN_LOGIN}
+export LL_RHN_PASSWORD=${LL_RHN_PASSWORD}
 
 # Activation key for SAM server.  Point your browser here:
 # https://rhn.redhat.com/network/account/activation_keys/list.pxt and
@@ -63,7 +64,7 @@ export LL_IPA_USER_PUBKEY=${LL_IPA_USER_PUBKEY}
 
 # === Basic Sanity Checks ==============================================
 
-for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHNLOGIN LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY; do
+for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHN_LOGIN LL_RHN_PASSWORD LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY; do
   if [ "`printenv $v`x" = x ]; then
     echo "Error: missing value for $v in ~/.ll-config";
   fi;
@@ -89,8 +90,6 @@ DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 
 # Mount the RHEL DVD under /mnt, or similar.
 sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
-
-if false; then
 
 # === IPA ==============================================================
 
@@ -328,7 +327,7 @@ echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
 # Now we register the SAM server to hosted RHN classic...
-rhnreg_ks --profilename=$LL_RHNLOGIN --activationkey=$LL_SAM_KEY
+rhnreg_ks --profilename=$LL_RHN_LOGIN --activationkey=$LL_SAM_KEY
 
 # Install and configure katello...
 yum install -y katello-headpin-all
@@ -352,8 +351,13 @@ action "Running Post Boot Configure script: " /bin/true
 action "  Restoring original rc.local: " mv -f /etc/rc.d/rc.local.backup /etc/rc.d/rc.local
 PBCRCEND
 
-echo === Enabling home directory creation ===========================
-authconfig --enablemkhomedir --update
+# Fix networking...
+echo "nameserver 10.0.0.99" > /etc/resolv.conf
+hostname sam.$LL_DOMAIN
+echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+
+echo === Register with IPA server ===================================
+ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
 %end
 
 %post --nochroot --log=/mnt/sysimage/root/post_install_2.log
@@ -376,14 +380,6 @@ virt-install \
 # Restart the guest to complete katello's configuration.  This just
 # starts the guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
-
-# WARNING: There is a race here, in that we assume that the SAM
-# katello instance will finish configuring itself BEFORE it is
-# required for the IPA %post script below.  We can always sleep here
-# for a minute or two before moving on to give SAM a head start if we
-# have to.
-
-fi
 
 # === Cobbler ==========================================================
 
@@ -438,25 +434,25 @@ echo === Register with IPA server ===================================
 ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
 
 echo === Grab cobbler from RHN ======================================
-rhnks_reg --username=$LL_RHN_LOGIN --password=$LL_RHN_PASSWORD
+rhnreg_ks --username=$LL_RHN_LOGIN --password=$LL_RHN_PASSWORD
 rhn-channel -u $LL_RHN_LOGIN -p $LL_RHN_PASSWORD --add -c redhat-rhn-satellite-5.4-server-x86_64-6
-yes | yum install cobbler
+yum install -y cobbler
 # TODO unregister from RHN
 
 echo === Register with SAM server ===================================
 cat /etc/resolv.conf
 rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
 subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
+
+
+echo === Configure cobbler ==========================================
 chkconfig tftp on
 service tftp start
 chkconfig rsync on
 service rsync start
 /usr/sbin/semanage fcontext -a -t public_content_t "/tftpboot/.*" 
 /usr/sbin/semanage fcontext -a -t public_content_t "/var/www/cobbler/images/.*"
-#cobbler get-loaders
-
-echo === Enabling home directory creation ===========================
-authconfig --enablemkhomedir --update
+cobbler get-loaders
 %end
 EOF
 
