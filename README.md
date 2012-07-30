@@ -21,7 +21,7 @@ ll-build requires a few things before you start:
  Now create a new Activation Key with the Red Hat Default base channel,
  and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
 
-3. You'll to allocate some entitlements to your SAM server and
+3. You'll need to allocate some entitlements to your SAM server and
    download a manifest file (manifest.zip) from access.redhat.com.
 
 4. You'll need a public ssh key for the default user account.

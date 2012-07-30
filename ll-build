@@ -57,6 +57,8 @@ export LL_IPA_ADMINPWD=${LL_IPA_ADMINPWD-$LL_ROOTPW}
 export LL_IPA_DMPWD=${LL_IPA_DMPWD-$LL_ROOTPW}
 export LL_IPA_SUDOPWD=${LL_IPA_SUDOPWD-$LL_ROOTPW}
 
+# Info for a user account.  Put your personal info here, 
+# including your public SSH key.
 export LL_IPA_USER_LOGIN=${LL_IPA_USER_LOGIN}
 export LL_IPA_USER_FIRST=${LL_IPA_USER_FIRST}
 export LL_IPA_USER_LAST=${LL_IPA_USER_LAST}
@@ -355,6 +357,8 @@ PBCRCEND
 echo "nameserver 10.0.0.99" > /etc/resolv.conf
 hostname sam.$LL_DOMAIN
 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
+# Force this host info the hosts file.
+echo "10.0.0.97  sam.$LL_DOMAIN" >> /etc/hosts
 
 echo === Register with IPA server ===================================
 ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
@@ -377,7 +381,7 @@ virt-install \
     --initrd-inject=sam.ks \
     --initrd-inject=$LL_SAM_MANIFEST --noreboot --force
 
-# Restart the guest to complete katello's configuration.  This just
+# Restart the guest to complete the katello configuration.  This just
 # starts the guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
 
@@ -436,6 +440,7 @@ ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomed
 echo === Grab cobbler from RHN ======================================
 rhnreg_ks --username=$LL_RHN_LOGIN --password=$LL_RHN_PASSWORD
 rhn-channel -u $LL_RHN_LOGIN -p $LL_RHN_PASSWORD --add -c redhat-rhn-satellite-5.4-server-x86_64-6
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
 yum install -y cobbler
 # TODO unregister from RHN
 
