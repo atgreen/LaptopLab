@@ -26,6 +26,29 @@ ll-build requires a few things before you start:
 
 4. You'll need a public ssh key for the default user account.
 
+5. You'll need to set up a private network for libvirt managed
+guests.  Drop the following file in
+/etc/libvirt/qemu/networks/10_0.xml :
+
+    <network>
+      <name>10_0</name>
+      <uuid>fc760627-1490-3fa4-7719-7b40a1c48f65</uuid>
+      <forward mode='nat'/>
+      <bridge name='atg0' stp='on' forwardDelay='0' ></bridge>
+      <ip address='10.0.0.1' netmask='255.255.255.0'>
+        <dhcp>
+          <range start='10.0.0.100' end='10.0.0.254' ></range>
+        </dhcp>
+      </ip>
+    </network>
+
+Now do this...
+
+    cd /etc/libvirt/qemu/networks/autostart/
+    ln -s ../10_0.xml .
+
+That's it.
+
 
 ll-build requires that you set a number of environment variables to
 configure the system.  They are documented at the top of the script.
