@@ -26,6 +26,9 @@ export LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
 # Where is the RHEL DVD ISO?
 export LL_RHELDVD=${LL_RHELDVD}
 
+# Where is the RHS DVD ISO?
+export LL_RHSDVD=${LL_RHSDVD}
+
 # What root password do you plan on using?
 export LL_ROOTPW=${LL_ROOTPW}
 
@@ -197,7 +200,7 @@ EOF
 virt-install \
     --disk $LL_RHELDVD,device=cdrom \
     --name ipa.$LL_DOMAIN --ram 1024 \
-    --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,size=8 \
+    --disk /var/lib/libvirt/images/ipa.$LL_DOMAIN.img,format=qcow2,size=8 \
     --network network:10_0,model=virtio,mac=$ETH0_MAC \
     --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
@@ -378,7 +381,7 @@ EOF
 virt-install \
     --disk $LL_RHELDVD,device=cdrom \
     --name sam.$LL_DOMAIN --ram 1024 \
-    --disk /var/lib/libvirt/images/sam.$LL_DOMAIN.img,size=8 \
+    --disk /var/lib/libvirt/images/sam.$LL_DOMAIN.img,format=qcow2,size=8 \
     --network network:10_0,model=virtio,mac=$ETH0_MAC \
     --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
@@ -471,9 +474,9 @@ perl -p -i -e "s/server: 127.0.0.1/server: 10.0.0.98/g" /etc/cobbler/settings
 perl -p -i -e "s/manage_rsync: 0/manage_rsync: 1/g" /etc/cobbler/settings
 perl -p -i -e "s/manage_dhcp: 0/manage_dhcp: 1/g" /etc/cobbler/settings
 perl -p -i -e "s/pxe_just_once: 0/pxe_just_once: 1/g" /etc/cobbler/settings
-perl -p -i -e "s/192\.168\.1\.5/10\.0\.0\.99/g" /etc/cobbler/dhcp.template
-perl -p -i -e "s/192\.168\.1\.1/10\.0\.0\.99/g" /etc/cobbler/dhcp.template
-perl -p -i -e "s/192\.168\.1/10\.0\.0/g" /etc/cobbler/dhcp.template
+perl -p -i -e "s/192\.168\.1\.5/10.0.0.99/g" /etc/cobbler/dhcp.template
+perl -p -i -e "s/192\.168\.1\.1/10.0.0.99/g" /etc/cobbler/dhcp.template
+perl -p -i -e "s/192\.168\.1/10.0.0/g" /etc/cobbler/dhcp.template
 perl -p -i -e "s/9900/100/g" /etc/cobbler/dhcp.template
 service cobblerd start
 chkconfig cobblerd on
@@ -481,13 +484,18 @@ cobbler get-loaders
 cobbler sync
 mount -t iso9660 /dev/sr0 /mnt
 cobbler import --path=/mnt --name=$LL_COBBLER_DISTRO_NAME
+cat >> /etc/rc.d/rc.local <<PBCRCEND
+# TODO: this seems to be required to get next_server right in dhcpd.conf.
+cobbler sync
+service dhcpd restart
+PBCRCEND
 %end
 EOF
 
 virt-install \
     --disk $LL_RHELDVD,device=cdrom \
     --name cobbler.$LL_DOMAIN --ram 1024 \
-    --disk /var/lib/libvirt/images/cobbler.$LL_DOMAIN.img,size=8 \
+    --disk /var/lib/libvirt/images/cobbler.$LL_DOMAIN.img,format=qcow2,size=64 \
     --network network:10_0,model=virtio,mac=$ETH0_MAC \
     --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
