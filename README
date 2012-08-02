@@ -62,6 +62,7 @@ You can either modify the script to change these values, or create a
     
     LL_DOMAIN=atgreen.org
     LL_RHELDVD=/home/green/Downloads/rhel-server-6.3-x86_64-dvd.iso
+    LL_COBBLER_DISTRO_NAME="rhel6.3-x86_64"
     LL_ROOTPW=r3dhat1.
     LL_MOUNTPOINT=/mnt
     LL_RHN_LOGIN=greenrhn

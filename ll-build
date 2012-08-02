@@ -64,9 +64,11 @@ export LL_IPA_USER_FIRST=${LL_IPA_USER_FIRST}
 export LL_IPA_USER_LAST=${LL_IPA_USER_LAST}
 export LL_IPA_USER_PUBKEY=${LL_IPA_USER_PUBKEY}
 
+export LL_COBBLER_DISTRO_NAME=${LL_COBBLER_DISTRO_NAME}
+
 # === Basic Sanity Checks ==============================================
 
-for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHN_LOGIN LL_RHN_PASSWORD LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY; do
+for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHN_LOGIN LL_RHN_PASSWORD LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY LL_COBBLER_DISTRO_NAME; do
   if [ "`printenv $v`x" = x ]; then
     echo "Error: missing value for $v in ~/.ll-config";
   fi;
@@ -92,8 +94,6 @@ DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 
 # Mount the RHEL DVD under /mnt, or similar.
 sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
-
-if false; then
 
 # === IPA ==============================================================
 
@@ -390,8 +390,6 @@ virt-install \
 # starts the guest, and we'll move on while it continues to run.
 virsh --connect qemu:///system start sam.$LL_DOMAIN
 
-fi;
-
 # === Cobbler ==========================================================
 
 # Generate a couple of MAC addresses for eth0 and eth1.
@@ -416,7 +414,7 @@ network --bootproto dhcp \
  --device=$ETH1_MAC
 rootpw $LL_ROOTPW
 # Cobbler needs a number of ports open.  See the documentation for details.
-firewall --enabled --ssh --port=69:tcp,80:tcp,443:tcp,25151:tcp
+firewall --enabled --ssh --port=69:tcp,69:udp,80:tcp,443:tcp,25150:tcp,25151:tcp
 selinux --permissive
 timezone --utc $LL_TIMEZONE
 bootloader --location=mbr --append="rd_NO_PLYMOUTH"
@@ -481,6 +479,8 @@ service cobblerd start
 chkconfig cobblerd on
 cobbler get-loaders
 cobbler sync
+mount -t iso9660 /dev/sr0 /mnt
+cobbler import --path=/mnt --name=$LL_COBBLER_DISTRO_NAME
 %end
 EOF
 
