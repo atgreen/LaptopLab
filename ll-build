@@ -26,9 +26,6 @@ export LL_TIMEZONE=${LL_TIMEZONE-America/Toronto}
 # Where is the RHEL DVD ISO?
 export LL_RHELDVD=${LL_RHELDVD}
 
-# Where is the RHS DVD ISO?
-export LL_RHSDVD=${LL_RHSDVD}
-
 # What root password do you plan on using?
 export LL_ROOTPW=${LL_ROOTPW}
 
@@ -39,21 +36,15 @@ export LL_MOUNTPOINT=${LL_MOUNTPOINT}
 export LL_RHN_LOGIN=${LL_RHN_LOGIN}
 export LL_RHN_PASSWORD=${LL_RHN_PASSWORD}
 
-# Activation key for SAM server.  Point your browser here:
-# https://rhn.redhat.com/network/account/activation_keys/list.pxt and
-# create a new Activation Key with the Red Hat Default base channel,
-# and the "SAM for RHEL Server (v.6 64-bit x86_64)" child channel.
-export LL_SAM_KEY=${LL_SAM_KEY}
-
 # Path to the manifest file for the subscription asset manage,
-# currently assumed to be called manifest.zip.  The SAM kickstart file
+# currently assumed to be called manifest.zip.  The SE kickstart file
 # should be modified if this is not the case.  FIXME.
-export LL_SAM_MANIFEST=${LL_SAM_MANIFEST}
+export LL_SE_MANIFEST=${LL_SE_MANIFEST}
 
-# More SAM configury...
-export LL_SAM_ADMIN=${LL_SAM_ADMIN-admin}
-export LL_SAM_ADMINPWD=${LL_SAM_ADMINPWD-$LL_ROOTPW}
-export LL_SAM_ORGNAME=${LL_SAM_ORGNAME-Laptop_Lab}
+# More SE configury...
+export LL_SE_ADMIN=${LL_SE_ADMIN-admin}
+export LL_SE_ADMINPWD=${LL_SE_ADMINPWD-$LL_ROOTPW}
+export LL_SE_ORGNAME=${LL_SE_ORGNAME-Laptop_Lab}
 
 # Passwords for IPA.  Just use the root password by default.
 export LL_IPA_ADMINPWD=${LL_IPA_ADMINPWD-$LL_ROOTPW}
@@ -71,7 +62,7 @@ export LL_COBBLER_DISTRO_NAME=${LL_COBBLER_DISTRO_NAME}
 
 # === Basic Sanity Checks ==============================================
 
-for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHN_LOGIN LL_RHN_PASSWORD LL_SAM_KEY LL_SAM_MANIFEST LL_SAM_ADMIN LL_SAM_ADMINPWD LL_SAM_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY LL_COBBLER_DISTRO_NAME; do
+for v in LL_DOMAIN LL_IPA_REALM LL_TIMEZONE LL_RHELDVD LL_ROOTPW LL_MOUNTPOINT LL_RHN_LOGIN LL_RHN_PASSWORD LL_SE_MANIFEST LL_SE_ADMIN LL_SE_ADMINPWD LL_SE_ORGNAME LL_IPA_ADMINPWD LL_IPA_DMPWD LL_IPA_SUDOPWD LL_IPA_USER_LOGIN LL_IPA_USER_FIRST LL_IPA_USER_LAST LL_IPA_USER_PUBKEY LL_COBBLER_DISTRO_NAME; do
   if [ "`printenv $v`x" = x ]; then
     echo "Error: missing value for $v in ~/.ll-config";
   fi;
@@ -97,6 +88,8 @@ DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 
 # Mount the RHEL DVD under /mnt, or similar.
 sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
+
+if false; then
 
 # === IPA ==============================================================
 
@@ -211,7 +204,9 @@ virt-install \
 # Restart the guest and move on.
 virsh --connect qemu:///system start ipa.$LL_DOMAIN
 
-# === Subscription Asset Manager =======================================
+fi;
+
+# === SystemEngine =====================================================
 #
 # This is the server through which other servers will register to RHN
 # and acts as a gateway to the RHN content delivery network.  We need
@@ -223,7 +218,7 @@ virsh --connect qemu:///system start ipa.$LL_DOMAIN
 generate_MAC_address ETH0_MAC
 generate_MAC_address ETH1_MAC
 
-cat > sam.ks <<EOF
+cat > se.ks <<EOF
 install
 text
 reboot
@@ -231,12 +226,12 @@ lang en_US.UTF-8
 keyboard us
 network --bootproto static --ip=10.0.0.97 \
  --netmask=255.255.255.0 --nameserver=10.0.0.99 \
- --hostname sam.$LL_DOMAIN \
+ --hostname se.$LL_DOMAIN \
  --nodefroute \
  --noipv6 \
  --device=$ETH0_MAC
 network --bootproto dhcp \
- --hostname sam.$LL_DOMAIN \
+ --hostname se.$LL_DOMAIN \
  --noipv6 \
  --device=$ETH1_MAC
 rootpw $LL_ROOTPW
@@ -251,8 +246,8 @@ autopart
 @core
 ipa-client
 subscription-manager
-# Install packages required by SAM.  Doing this here pulls them from
-# the DVD ISO rather than over the net from RHN.
+# Install packages required by SystemEngine.  Doing this here pulls
+# them from the DVD ISO rather than over the net from RHN.
 antlr
 apr-util
 cvs
@@ -336,21 +331,22 @@ xorg-x11-font-utils
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
-# Now we register the SAM server to hosted RHN classic...
-rhnreg_ks --profilename=$LL_RHN_LOGIN --activationkey=$LL_SAM_KEY
+# Now we register the SystemEngine server to hosted RHN classic...
+rhnreg_ks --profilename=se.$LL_DOMAIN --username=$LL_RHN_LOGIN --password=$LL_RHN_PASSWORD
+rhn-channel --add -c rhel-x86_64-server-6-cf-se-1 -u $LL_RHN_LOGIN -p $LL_RHN_PASSWORD
 
 # Install and configure katello...
-yum install -y katello-headpin-all
+yum install -y katello-all
 
 # Set up a post-reboot script
 /bin/cat > /root/post-boot-configure.sh <<PBCEND
 #!/bin/sh
-katello-configure --deployment=sam \
-  --user-name=$LL_SAM_ADMIN \
-  --user-pass=$LL_SAM_ADMINPWD \
-  --org-name=$LL_SAM_ORGNAME
-headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD provider import_manifest --org $LL_SAM_ORGNAME --name "Red Hat" --file /root/manifest.zip
-headpin -u $LL_SAM_ADMIN -p $LL_SAM_ADMINPWD environment create --org $LL_SAM_ORGNAME --name Lab --prior Library
+katello-configure \
+  --user-name=$LL_SE_ADMIN \
+  --user-pass=$LL_SE_ADMINPWD \
+  --org-name=$LL_SE_ORGNAME
+headpin -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD provider import_manifest --org $LL_SE_ORGNAME --name "Red Hat" --file /root/manifest.zip
+headpin -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD environment create --org $LL_SE_ORGNAME --name Lab --prior Library
 PBCEND
 chmod +x /root/post-boot-configure.sh
 cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
@@ -363,35 +359,35 @@ PBCRCEND
 
 # Fix networking...
 echo "nameserver 10.0.0.99" > /etc/resolv.conf
-hostname sam.$LL_DOMAIN
+hostname se.$LL_DOMAIN
 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
 # Force this host info the hosts file.
-echo "10.0.0.97  sam.$LL_DOMAIN" >> /etc/hosts
+echo "10.0.0.97  se.$LL_DOMAIN" >> /etc/hosts
 
 echo === Register with IPA server ===================================
 ipa-client-install -N --configure-ssh --configure-sshd --ssh-trust-dns --mkhomedir --enable-dns-updates -p admin -w $LL_IPA_ADMINPWD -U
 %end
 
 %post --nochroot --log=/mnt/sysimage/root/post_install_2.log
-# Copy the SAM manifest file from our initrd image into /root
+# Copy the SE manifest file from our initrd image into /root
 cp /manifest.zip /mnt/sysimage/root
 %end
 EOF
 
 virt-install \
     --disk $LL_RHELDVD,device=cdrom \
-    --name sam.$LL_DOMAIN --ram 1024 \
-    --disk /var/lib/libvirt/images/sam.$LL_DOMAIN.img,format=qcow2,size=8 \
+    --name se.$LL_DOMAIN --ram 1024 \
+    --disk /var/lib/libvirt/images/se.$LL_DOMAIN.img,format=qcow2,size=8 \
     --network network:10_0,model=virtio,mac=$ETH0_MAC \
     --network network:default,model=virtio,mac=$ETH1_MAC \
     -l $LL_MOUNTPOINT \
-    -x "ks=file:/sam.ks" \
-    --initrd-inject=sam.ks \
-    --initrd-inject=$LL_SAM_MANIFEST --noreboot --force
+    -x "ks=file:/se.ks" \
+    --initrd-inject=se.ks \
+    --initrd-inject=$LL_SE_MANIFEST --noreboot --force
 
 # Restart the guest to complete the katello configuration.  This just
 # starts the guest, and we'll move on while it continues to run.
-virsh --connect qemu:///system start sam.$LL_DOMAIN
+virsh --connect qemu:///system start se.$LL_DOMAIN
 
 # === Cobbler ==========================================================
 
@@ -451,7 +447,7 @@ hostname cobbler.$LL_DOMAIN
 echo "PEERDNS=no" >> /etc/sysconfig/network-scripts/ifcfg-eth1
 
 # TODO remove this when IPA is working
-echo "10.0.0.97  sam.$LL_DOMAIN" >> /etc/hosts
+echo "10.0.0.97  se.$LL_DOMAIN" >> /etc/hosts
 echo "10.0.0.98  cobbler.$LL_DOMAIN" >> /etc/hosts
 echo "10.0.0.99  ipa.$LL_DOMAIN" >> /etc/hosts
 
@@ -462,10 +458,10 @@ echo === Grab cobbler from EPEL =====================================
 rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-7.noarch.rpm
 yum install -y cobbler
 
-echo === Register with SAM server ===================================
+echo === Register with SE server ===================================
 cat /etc/resolv.conf
-rpm -ivh http://sam.$LL_DOMAIN/pub/candlepin-cert-consumer-sam.$LL_DOMAIN-1.0-1.noarch.rpm
-subscription-manager register --user $LL_SAM_ADMIN --password $LL_SAM_ADMINPWD --org $LL_SAM_ORGNAME --env Lab
+rpm -ivh http://se.$LL_DOMAIN/pub/candlepin-cert-consumer-se.$LL_DOMAIN-1.0-1.noarch.rpm
+subscription-manager register --user $LL_SE_ADMIN --password $LL_SE_ADMINPWD --org $LL_SE_ORGNAME --env Lab
 
 echo === Configure cobbler ==========================================
 service httpd start
