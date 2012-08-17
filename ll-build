@@ -89,8 +89,6 @@ DTLD=`echo $LL_DOMAIN | awk -F. '{ print $2 }'`
 # Mount the RHEL DVD under /mnt, or similar.
 sudo mount -o loop -t iso9660 $LL_RHELDVD $LL_MOUNTPOINT
 
-if false; then
-
 # === IPA ==============================================================
 
 # Generate a couple of MAC addresses for eth0 and eth1.
@@ -203,8 +201,6 @@ virt-install \
 
 # Restart the guest and move on.
 virsh --connect qemu:///system start ipa.$LL_DOMAIN
-
-fi;
 
 # === SystemEngine =====================================================
 #
@@ -345,8 +341,8 @@ katello-configure \
   --user-name=$LL_SE_ADMIN \
   --user-pass=$LL_SE_ADMINPWD \
   --org-name=$LL_SE_ORGNAME
-headpin -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD provider import_manifest --org $LL_SE_ORGNAME --name "Red Hat" --file /root/manifest.zip
-headpin -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD environment create --org $LL_SE_ORGNAME --name Lab --prior Library
+katello -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD provider import_manifest --org $LL_SE_ORGNAME --name "Red Hat" --file /root/manifest.zip
+katello -u $LL_SE_ADMIN -p $LL_SE_ADMINPWD environment create --org $LL_SE_ORGNAME --name Lab --prior Library
 PBCEND
 chmod +x /root/post-boot-configure.sh
 cp /etc/rc.d/rc.local /etc/rc.d/rc.local.backup
@@ -459,9 +455,9 @@ rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-7.noar
 yum install -y cobbler
 
 echo === Register with SE server ===================================
-cat /etc/resolv.conf
-rpm -ivh http://se.$LL_DOMAIN/pub/candlepin-cert-consumer-se.$LL_DOMAIN-1.0-1.noarch.rpm
-subscription-manager register --user $LL_SE_ADMIN --password $LL_SE_ADMINPWD --org $LL_SE_ORGNAME --env Lab
+#cat /etc/resolv.conf
+#rpm -ivh http://se.$LL_DOMAIN/pub/candlepin-cert-consumer-se.$LL_DOMAIN-1.0-1.noarch.rpm
+#subscription-manager register --user $LL_SE_ADMIN --password $LL_SE_ADMINPWD --org $LL_SE_ORGNAME --env Lab
 
 echo === Configure cobbler ==========================================
 service httpd start
