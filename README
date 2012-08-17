@@ -29,11 +29,7 @@ ll-build requires a few things before you start:
       <uuid>fc760627-1490-3fa4-7719-7b40a1c48f65</uuid>
       <forward mode='nat'/>
       <bridge name='ll0' stp='on' forwardDelay='0' ></bridge>
-      <ip address='10.0.0.1' netmask='255.255.255.0'>
-        <dhcp>
-          <range start='10.0.0.100' end='10.0.0.254' ></range>
-        </dhcp>
-      </ip>
+      <ip address='10.0.0.1' netmask='255.255.255.0'/>
     </network>
 
 Now do this...
