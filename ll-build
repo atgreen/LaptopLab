@@ -470,6 +470,9 @@ perl -p -i -e "s/192\.168\.1\.5/10.0.0.99/g" /etc/cobbler/dhcp.template
 perl -p -i -e "s/192\.168\.1\.1/10.0.0.99/g" /etc/cobbler/dhcp.template
 perl -p -i -e "s/192\.168\.1/10.0.0/g" /etc/cobbler/dhcp.template
 perl -p -i -e "s/9900/100/g" /etc/cobbler/dhcp.template
+perl -p -i -e "s/default_password_crypted.*$//g" /etc/cobbler/settings
+echo "default_password_crypted: \"$(echo $LL_ROOTPW | openssl passwd -1 -stdin)\"" >> /etc/cobbler/settings
+
 service cobblerd start
 chkconfig cobblerd on
 cobbler get-loaders
